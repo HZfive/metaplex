@@ -18,6 +18,7 @@ import {
   Metadata,
   MetadataKey,
 } from '@metaplex-foundation/mpl-token-metadata';
+import { EndSettingType } from '../types';
 
 export async function getCandyMachineV2Config(
   walletKeyPair: web3.Keypair,
@@ -104,7 +105,7 @@ export async function getCandyMachineV2Config(
         )
       )[0]
     : null;
-  if (splToken) {
+  if (splTokenAccount) {
     if (solTreasuryAccount) {
       throw new Error(
         'If spl-token-account or spl-token is set then sol-treasury-account cannot be set',
@@ -176,11 +177,33 @@ export async function getCandyMachineV2Config(
       );
     }
   }
-
+  //From PR #2099 thks statikdev
   if (endSettings) {
-    if (endSettings.endSettingType.date) {
+    const endSettingType = endSettings.endSettingType as EndSettingType;
+    if (!endSettingType || typeof endSettingType !== 'string') {
+      throw new Error(
+        'Invalid Config: `endSettingType` must be set to a string.',
+      );
+    }
+
+    const isValidEndSettingType = [
+      EndSettingType.AMOUNT,
+      EndSettingType.DATE,
+    ].includes(endSettingType);
+
+    if (!isValidEndSettingType) {
+      throw new Error(
+        'Invalid Config: `endSettingType` must be set to "Date" or "Amount".',
+      );
+    }
+
+    // override endSettingType with `date` or `amount` as property set to true
+    // such that it serializes correctly
+    if (endSettingType === EndSettingType.DATE) {
+      endSettings.endSettingType = { date: true };
       endSettings.number = new BN(parseDate(endSettings.value));
-    } else if (endSettings.endSettingType.amount) {
+    } else if (endSettingType === EndSettingType.AMOUNT) {
+      endSettings.endSettingType = { amount: true };
       endSettings.number = new BN(endSettings.value);
     }
     delete endSettings.value;

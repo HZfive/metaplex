@@ -2,7 +2,6 @@
   "name": "token-entangler",
   "version": "0.1.0",
   "private": true,
-  "homepage": "https://www.monadical.com/",
   "dependencies": {
     "@emotion/react": "^11",
     "@emotion/styled": "^11",

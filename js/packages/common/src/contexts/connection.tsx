@@ -45,7 +45,7 @@ export const ENDPOINTS: Array<Endpoint> = [
   {
     name: 'mainnet-beta',
     label: 'mainnet-beta',
-    url: 'https://api.metaplex.solana.com/',
+    url: 'https://ssc-dao.genesysgo.net',
     chainId: ChainId.MainnetBeta,
   },
   {
@@ -108,12 +108,23 @@ export function ConnectionProvider({ children }: { children: any }) {
   useEffect(() => {
     function fetchTokens() {
       return getTokenListContainerPromise().then(container => {
+        const cleanT = {} as TokenInfo;
         const list = container
           .excludeByTag('nft')
           .filterByChainId(endpoint.chainId)
           .getList();
 
-        const map = new Map(list.map(item => [item.address, item]));
+        const map = new Map(
+          list.map(item => {
+            try {
+              return [item.address, item];
+            } catch (e) {
+              console.error(e);
+              return ['error', cleanT];
+            }
+          }),
+        );
+
         setTokens(map);
       });
     }

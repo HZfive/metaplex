@@ -35,7 +35,7 @@ export const AuctionRenderCard = (props: AuctionCard) => {
             />
             <span className={'artist-name'}>
               {creators[0]?.name ||
-                creators[0]?.address?.substr(0, 6) ||
+                creators[0]?.address?.substring(0, 6) ||
                 'Go to auction'}
               ...
             </span>

@@ -47,6 +47,7 @@ import { removeCollection } from './commands/remove-collection';
 import { setCollection } from './commands/set-collection';
 import { withdrawBundlr } from './helpers/upload/arweave-bundle';
 import { CollectionData } from './types';
+import { bs58 } from '@project-serum/anchor/dist/cjs/utils/bytes';
 
 program.version('0.0.2');
 const supportedImageTypes = {
@@ -91,7 +92,7 @@ programCommand('versionIDL', { requireWallet: false }).action(
   async (options, cmd) => {
     const { env, rpcUrl } = cmd.opts();
     const anchorProgram = await loadCandyProgramV2(new Keypair(), env, rpcUrl);
-    log.info('Idl Version', anchorProgram.idl.version);
+    log.info('Idl Version', anchorProgram.idl.version, 'Rpc:', rpcUrl);
   },
 );
 
@@ -310,7 +311,7 @@ programCommand('upload')
       process.exit(1);
     }
     const endMs = Date.now();
-    const timeTaken = new Date(endMs - startMs).toISOString().substr(11, 8);
+    const timeTaken = new Date(endMs - startMs).toISOString().substring(11, 8);
     log.info(
       `ended at: ${new Date(endMs).toISOString()}. time taken: ${timeTaken}`,
     );
@@ -523,7 +524,7 @@ program
     verifyTokenMetadata({ files, uploadElementsCount: number });
 
     const endMs = Date.now();
-    const timeTaken = new Date(endMs - startMs).toISOString().substr(11, 8);
+    const timeTaken = new Date(endMs - startMs).toISOString().substring(11, 8);
     log.info(
       `ended at: ${new Date(endMs).toString()}. time taken: ${timeTaken}`,
     );
@@ -564,7 +565,6 @@ programCommand('verify_upload')
           if (i % 100 == 0) saveCache(cacheName, env, cacheContent);
 
           const key = allIndexesInSlice[i];
-          log.info('Looking at key ', key);
 
           const thisSlice = candyMachine.data.slice(
             CONFIG_ARRAY_START_V2 + 4 + CONFIG_LINE_SIZE_V2 * key,
@@ -578,16 +578,41 @@ programCommand('verify_upload')
             ...thisSlice.slice(40, 240).filter(n => n !== 0),
           ]);
           const cacheItem = cacheContent.items[key];
+          const uriImage = await fetch(uri);
+          const dataJson = uriImage.ok
+            ? await uriImage.json()
+            : { image: 'nada' };
+          let uriImageFind = false;
+          const myURL = new URL(dataJson.image, cacheItem.imageLink);
+          if (dataJson.image.length === myURL.toString().length) {
+            uriImageFind = true;
+          }
+          const uriImageFind2 = await fetch(cacheItem.imageLink);
 
-          if (name != cacheItem.name || uri != cacheItem.link) {
+          if (
+            name != cacheItem.name ||
+            uri != cacheItem.link ||
+            !uriImageFind ||
+            !uriImageFind2.ok ||
+            !uriImage.ok
+          ) {
+            log.info(uriImageFind, dataJson.image, cacheItem.imageLink);
+            log.info(
+              'Looking at key ',
+              key,
+              `Metadata Response(${uriImage.status}) or image Uri:(${
+                uriImageFind ? '==' : '!='
+              }) ` + `and Image Response (${uriImageFind2.status})`,
+            );
             log.debug(
-              `Name (${name}) or uri (${uri}) didnt match cache values of (${cacheItem.name})` +
-                `and (${cacheItem.link}). marking to rerun for image`,
+              `Name (${uriImage.status}) or uri (${uriImageFind}) ` +
+                `and (${uriImageFind2.status}). marking to rerun for image`,
               key,
             );
-            cacheItem.onChain = false;
+            // cacheItem.onChain = false;
             allGood = false;
           } else {
+            log.info('Looking at key ', key, ' is Ok');
             cacheItem.verifyRun = true;
           }
         }
@@ -771,18 +796,16 @@ programCommand('show')
 
       //@ts-ignore
       log.info('hidden settings: ', machine.data.hiddenSettings);
-      if (machine.data.endSettings) {
-        log.info('End settings: ');
+      const endSettings = machine.data.endSettings;
+      if (endSettings) {
+        //From PR #2099 thks statikdev
+        log.info('End settings:');
 
-        if (machine.data.endSettings.endSettingType.date) {
+        if (endSettings.endSettingType.date) {
           //@ts-ignore
-          log.info('End on', new Date(machine.data.endSettings.number * 1000));
-        } else {
-          log.info(
-            'End when',
-            machine.data.endSettings.number.toNumber(),
-            'sold',
-          );
+          log.info('\tEnd on', new Date(endSettings.number * 1000));
+        } else if (endSettings.endSettingType.amount) {
+          log.info('\tEnd when', endSettings.number.toNumber(), 'sold');
         }
       } else {
         log.info('No end settings detected');
@@ -1111,109 +1134,127 @@ programCommand('update_existing_nfts_from_latest_cache_file')
     );
   });
 
-programCommand('get_all_mint_addresses').action(async (directory, cmd) => {
-  const { env, cacheName, keypair } = cmd.opts();
+programCommand('get_all_mint_addresses')
+  .option(
+    '-r, --rpc-url <string>',
+    'custom rpc url since this is a heavy command',
+  )
+  .action(async (directory, cmd) => {
+    const { env, cacheName, keypair, rpcUrl } = cmd.opts();
 
-  const cacheContent = loadCache(cacheName, env);
-  const walletKeyPair = loadWalletKey(keypair);
-  const anchorProgram = await loadCandyProgramV2(walletKeyPair, env);
+    const cacheContent = loadCache(cacheName, env);
+    const walletKeyPair = loadWalletKey(keypair);
+    const anchorProgram = await loadCandyProgramV2(walletKeyPair, env, rpcUrl);
 
-  const candyMachineId = new PublicKey(cacheContent.program.candyMachine);
-  const [candyMachineAddr] = await deriveCandyMachineV2ProgramAddress(
-    candyMachineId,
-  );
+    const candyMachineId = new PublicKey(cacheContent.program.candyMachine);
+    const [candyMachineAddr] = await deriveCandyMachineV2ProgramAddress(
+      candyMachineId,
+    );
 
-  log.info('Getting mint addresses...');
-  const addresses = await getAddressesByCreatorAddress(
-    candyMachineAddr.toBase58(),
-    anchorProgram.provider.connection,
-  );
-  fs.writeFileSync('./mint-addresses.json', JSON.stringify(addresses, null, 2));
-  log.info('Successfully saved mint addresses to mint-addresses.json');
-});
-
-programCommand('get_all_owners_addresses').action(async (directory, cmd) => {
-  const { env, cacheName, keypair } = cmd.opts();
-
-  const cacheContent = loadCache(cacheName, env);
-  const walletKeyPair = loadWalletKey(keypair);
-  const anchorProgram = await loadCandyProgramV2(walletKeyPair, env);
-
-  const candyMachineId = new PublicKey(cacheContent.program.candyMachine);
-  const [candyMachineAddr] = await deriveCandyMachineV2ProgramAddress(
-    candyMachineId,
-  );
-
-  log.info('Getting mint addresses...');
-  const addresses = await getAddressesByCreatorAddress(
-    candyMachineAddr.toBase58(),
-    anchorProgram.provider.connection,
-  );
-
-  log.info('Getting owner addresses...');
-  const owners = await getOwnersByMintAddresses(
-    addresses,
-    anchorProgram.provider.connection,
-  );
-  fs.writeFileSync('./owner-addresses.json', JSON.stringify(owners, null, 2));
-  log.info('Successfully saved owner addresses to owner-addresses.json');
-});
-
-programCommand('get_unminted_tokens').action(async (directory, cmd) => {
-  const { keypair, env, cacheName } = cmd.opts();
-  const cacheContent = loadCache(cacheName, env);
-  const walletKeyPair = loadWalletKey(keypair);
-  const anchorProgram = await loadCandyProgramV2(walletKeyPair, env);
-  const candyAddress = cacheContent.program.candyMachine;
-
-  log.debug('Creator pubkey: ', walletKeyPair.publicKey.toBase58());
-  log.debug('Environment: ', env);
-  log.debug('Candy machine address: ', candyAddress);
-
-  const itemsAvailable = Object.keys(cacheContent.items).length;
-
-  const candyMachine = await anchorProgram.provider.connection.getAccountInfo(
-    new anchor.web3.PublicKey(candyAddress),
-  );
-
-  const thisSlice = candyMachine.data.slice(
-    CONFIG_ARRAY_START_V2 +
-      4 +
-      CONFIG_LINE_SIZE_V2 * itemsAvailable +
-      4 +
-      Math.floor(itemsAvailable / 8) +
-      4,
-    candyMachine.data.length,
-  );
-
-  let index = 0;
-  const unminted = {};
-
-  for (let i = 0; i < thisSlice.length; i++) {
-    const start = 1 << 7;
-    for (let j = 0; j < 8 && index < itemsAvailable; j++) {
-      if (!(thisSlice[i] & (start >> j))) {
-        unminted[index.toString()] = cacheContent.items[index.toString()];
-        log.debug('Unminted token index', index);
-      }
-      index++;
-    }
-  }
-
-  const found = Object.keys(unminted).length;
-
-  if (found > 0) {
+    log.info('Getting mint addresses...');
+    const addresses = await getAddressesByCreatorAddress(
+      candyMachineAddr.toBase58(),
+      anchorProgram.provider.connection,
+    );
     fs.writeFileSync(
-      './unminted-tokens.json',
-      JSON.stringify(unminted, null, 2),
+      `./mint-addresses-${candyMachineId.toBase58()}.json`,
+      JSON.stringify(addresses, null, 2),
     );
-    log.info(
-      `Done - successfully saved ${found} unminted token(s) information to 'unminted-tokens.json' file`,
+    log.info('Successfully saved mint addresses to mint-addresses.json');
+  });
+
+programCommand('get_all_owners_addresses')
+  .option(
+    '-r, --rpc-url <string>',
+    'custom rpc url since this is a heavy command',
+  )
+  .action(async (directory, cmd) => {
+    const { env, cacheName, keypair, rpcUrl } = cmd.opts();
+
+    const cacheContent = loadCache(cacheName, env);
+    const walletKeyPair = loadWalletKey(keypair);
+    const anchorProgram = await loadCandyProgramV2(walletKeyPair, env, rpcUrl);
+
+    const candyMachineId = new PublicKey(cacheContent.program.candyMachine);
+    const [candyMachineAddr] = await deriveCandyMachineV2ProgramAddress(
+      candyMachineId,
     );
-  } else {
-    log.info('Nothing to do - all tokens have been minted');
-  }
-});
+
+    log.info('Getting mint addresses...');
+    const addresses = await getAddressesByCreatorAddress(
+      candyMachineAddr.toBase58(),
+      anchorProgram.provider.connection,
+    );
+
+    log.info('Getting owner addresses...');
+    const owners = await getOwnersByMintAddresses(
+      addresses,
+      anchorProgram.provider.connection,
+    );
+    fs.writeFileSync('./owner-addresses.json', JSON.stringify(owners, null, 2));
+    log.info('Successfully saved owner addresses to owner-addresses.json');
+  });
+
+programCommand('get_unminted_tokens')
+  .option(
+    '-r, --rpc-url <string>',
+    'custom rpc url since this is a heavy command',
+  )
+  .action(async (directory, cmd) => {
+    const { keypair, env, cacheName, rpcUrl } = cmd.opts();
+    const cacheContent = loadCache(cacheName, env);
+    const walletKeyPair = loadWalletKey(keypair);
+    const anchorProgram = await loadCandyProgramV2(walletKeyPair, env, rpcUrl);
+    const candyAddress = cacheContent.program.candyMachine;
+
+    log.debug('Creator pubkey: ', walletKeyPair.publicKey.toBase58());
+    log.debug('Environment: ', env);
+    log.debug('Candy machine address: ', candyAddress);
+
+    const itemsAvailable = Object.keys(cacheContent.items).length;
+
+    const candyMachine = await anchorProgram.provider.connection.getAccountInfo(
+      new anchor.web3.PublicKey(candyAddress),
+    );
+
+    const thisSlice = candyMachine.data.slice(
+      CONFIG_ARRAY_START_V2 +
+        4 +
+        CONFIG_LINE_SIZE_V2 * itemsAvailable +
+        4 +
+        Math.floor(itemsAvailable / 8) +
+        4,
+      candyMachine.data.length,
+    );
+
+    let index = 0;
+    const unminted = {};
+
+    for (let i = 0; i < thisSlice.length; i++) {
+      const start = 1 << 7;
+      for (let j = 0; j < 8 && index < itemsAvailable; j++) {
+        if (!(thisSlice[i] & (start >> j))) {
+          unminted[index.toString()] = cacheContent.items[index.toString()];
+          log.debug('Unminted token index', index);
+        }
+        index++;
+      }
+    }
+
+    const found = Object.keys(unminted).length;
+
+    if (found > 0) {
+      fs.writeFileSync(
+        `./unminted-tokens-${candyAddress}.json`,
+        JSON.stringify(unminted, null, 2),
+      );
+      log.info(
+        `Done - successfully saved ${found} unminted token(s) information to 'unminted-tokens.json' file`,
+      );
+    } else {
+      log.info('Nothing to do - all tokens have been minted');
+    }
+  });
 
 function programCommand(
   name: string,
@@ -1247,5 +1288,12 @@ function setLogLevel(value, prev) {
   log.info('setting the log value to: ' + value);
   log.setLevel(value);
 }
+
+programCommand('decode_private_key', { requireWallet: false })
+  .argument('<private key>', 'Base58 encoded private key')
+  .action(async privKey => {
+    const decodedPrivKey = Uint8Array.from(bs58.decode(privKey));
+    console.log(decodedPrivKey);
+  });
 
 program.parse(process.argv);

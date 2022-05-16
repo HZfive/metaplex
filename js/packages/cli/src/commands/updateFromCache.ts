@@ -18,7 +18,10 @@ import {
   UpdateMetadataArgs,
 } from '../helpers/schema';
 import { deriveCandyMachineV2ProgramAddress } from '../helpers/accounts';
-
+import {
+  CONFIG_LINE_SIZE_V2,
+  CONFIG_ARRAY_START_V2,
+} from '../helpers/constants';
 const SIGNING_INTERVAL = 60 * 1000; //60s
 
 export async function updateFromCache(
@@ -66,24 +69,61 @@ export async function updateMetadataFromCache(
   const [candyMachineAddr] = await deriveCandyMachineV2ProgramAddress(
     new PublicKey(candyMachineAddress),
   );
+  const itemsAvailable = Object.keys(cacheContent.items).length;
+
+  const candyMachine = await connection.getAccountInfo(
+    new PublicKey(candyMachineAddress),
+  );
+
+  const thisSlice = candyMachine.data.slice(
+    CONFIG_ARRAY_START_V2 +
+      4 +
+      CONFIG_LINE_SIZE_V2 * itemsAvailable +
+      4 +
+      Math.floor(itemsAvailable / 8) +
+      4,
+    candyMachine.data.length,
+  );
+
+  let index = 0;
+  const unminted = {};
+
+  for (let i = 0; i < thisSlice.length; i++) {
+    const start = 1 << 7;
+    for (let j = 0; j < 8 && index < itemsAvailable; j++) {
+      if (!(thisSlice[i] & (start >> j))) {
+        unminted[index.toString()] = cacheContent.items[index.toString()];
+        log.debug('Unminted token index', index);
+      }
+      index++;
+    }
+  }
+
   candyMachineAddress = candyMachineAddr.toBase58();
   const metadataByCandyMachine = await getAccountsByCreatorAddress(
     candyMachineAddress,
     connection,
   );
+
   const differences = {};
   for (let i = 0; i < Object.keys(cacheContent.items).length; i++) {
-    if (
-      cacheContent.items[i.toString()].link !=
-      newCacheContent.items[i.toString()].link
-    ) {
-      differences[cacheContent.items[i.toString()].link] =
+    if (unminted[index.toString()]) {
+      cacheContent.items[i.toString()].link =
         newCacheContent.items[i.toString()].link;
+    } else {
+      if (
+        cacheContent.items[i.toString()].link !=
+        newCacheContent.items[i.toString()].link
+      ) {
+        differences[cacheContent.items[i.toString()].link] =
+          newCacheContent.items[i.toString()].link;
+      }
     }
   }
   const toUpdate = metadataByCandyMachine.filter(
     m => !!differences[m[0].data.uri],
   );
+
   log.info('Found', toUpdate.length, 'uris to update');
   let total = 0;
   while (toUpdate.length > 0) {

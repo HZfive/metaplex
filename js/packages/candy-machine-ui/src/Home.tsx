@@ -63,7 +63,7 @@ const Home = (props: HomeProps) => {
   const [discountPrice, setDiscountPrice] = useState<anchor.BN>();
   const [needTxnSplit, setNeedTxnSplit] = useState(true);
   const [setupTxn, setSetupTxn] = useState<SetupState>();
-
+  //const [tokenInfo, setTokenInfo] = useState<any>();
   const rpcUrl = props.rpcHost;
   const wallet = useWallet();
 
@@ -435,7 +435,17 @@ const Home = (props: HomeProps) => {
                       color="textPrimary"
                       style={{ fontWeight: 'bold' }}
                     >
-                      {isWhitelistUser && discountPrice
+                      {candyMachine.state.tokenMint
+                        ? isWhitelistUser && discountPrice
+                          ? `◎ ${formatNumber.asNumberD(
+                              discountPrice,
+                              candyMachine.state.tokenInfo?.decimals,
+                            )}`
+                          : `◎ ${formatNumber.asNumberD(
+                              candyMachine.state.price,
+                              candyMachine.state.tokenInfo?.decimals,
+                            )}`
+                        : isWhitelistUser && discountPrice
                         ? `◎ ${formatNumber.asNumber(discountPrice)}`
                         : `◎ ${formatNumber.asNumber(
                             candyMachine.state.price,

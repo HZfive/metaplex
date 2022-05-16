@@ -43,6 +43,13 @@ export const formatNumber = {
 
     return val.toNumber() / LAMPORTS_PER_SOL;
   },
+  asNumberD: (val?: anchor.BN, dec?: number | 0) => {
+    if (!val) {
+      return undefined;
+    }
+    const valor = 1 ^ (dec ? dec : 0);
+    return val.toNumber() / valor;
+  },
 };
 
 export const SPL_ASSOCIATED_TOKEN_ACCOUNT_PROGRAM_ID =

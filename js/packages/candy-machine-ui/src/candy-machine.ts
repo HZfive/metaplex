@@ -57,6 +57,7 @@ interface CandyMachineState {
     hash: Uint8Array;
   };
   retainAuthority: boolean;
+  tokenInfo: null | any;
 }
 
 export interface CandyMachineAccount {
@@ -177,6 +178,9 @@ export const getCandyMachineState = async (
   const itemsAvailable = state.data.itemsAvailable.toNumber();
   const itemsRedeemed = state.itemsRedeemed.toNumber();
   const itemsRemaining = itemsAvailable - itemsRedeemed;
+  const userTokenAccountAddress = (
+    await getAtaForMint(state.tokenMint, anchorWallet.publicKey)
+  )[0];
 
   return {
     id: candyMachineId,
@@ -199,6 +203,7 @@ export const getCandyMachineState = async (
       hiddenSettings: state.data.hiddenSettings,
       price: state.data.price,
       retainAuthority: state.data.retainAuthority,
+      tokenInfo: userTokenAccountAddress,
     },
   };
 };
