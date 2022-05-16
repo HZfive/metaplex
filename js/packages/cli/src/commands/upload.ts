@@ -284,6 +284,7 @@ export async function uploadV2({
           result.assets.map(a => a.cacheKey),
           result.assets.map(a => a.metadataJsonLink),
           result.assets.map(a => a.updatedManifest.name),
+          result.assets.map(a => a.updatedManifest.image),
         );
 
         saveCache(cacheName, env, cacheContent);
