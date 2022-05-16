@@ -30,7 +30,7 @@ interface CandyMachineState {
   itemsRedeemed: number;
   itemsRemaining: number;
   treasury: anchor.web3.PublicKey;
-  tokenMint: anchor.web3.PublicKey;
+  tokenMint: null | anchor.web3.PublicKey;
   isSoldOut: boolean;
   isActive: boolean;
   isPresale: boolean;
@@ -351,13 +351,18 @@ export const createAccountsForMint = async (
   };
 };
 
+type MintResult = {
+  mintTxId: string;
+  metadataKey: anchor.web3.PublicKey;
+};
+
 export const mintOneToken = async (
   candyMachine: CandyMachineAccount,
   payer: anchor.web3.PublicKey,
   beforeTransactions: Transaction[] = [],
   afterTransactions: Transaction[] = [],
   setupState?: SetupState,
-): Promise<string[]> => {
+): Promise<MintResult | null> => {
   const mint = setupState?.mint ?? anchor.web3.Keypair.generate();
   const userTokenAccountAddress = (
     await getAtaForMint(mint.publicKey, payer)
@@ -369,7 +374,6 @@ export const mintOneToken = async (
 
   const candyMachineAddress = candyMachine.id;
   const remainingAccounts = [];
-  const cleanupInstructions = [];
   const instructions = [];
   const signers: anchor.web3.Keypair[] = [];
   console.log('SetupState: ', setupState);
@@ -454,79 +458,30 @@ export const mintOneToken = async (
     });
 
     if (candyMachine.state.whitelistMintSettings.mode.burnEveryTime) {
-      const whitelistBurnAuthority = anchor.web3.Keypair.generate();
-
       remainingAccounts.push({
         pubkey: mint,
         isWritable: true,
         isSigner: false,
       });
       remainingAccounts.push({
-        pubkey: whitelistBurnAuthority.publicKey,
+        pubkey: payer,
         isWritable: false,
         isSigner: true,
       });
-      signers.push(whitelistBurnAuthority);
-      const exists =
-        await candyMachine.program.provider.connection.getAccountInfo(
-          whitelistToken,
-        );
-      if (exists) {
-        instructions.push(
-          Token.createApproveInstruction(
-            TOKEN_PROGRAM_ID,
-            whitelistToken,
-            whitelistBurnAuthority.publicKey,
-            payer,
-            [],
-            1,
-          ),
-        );
-        cleanupInstructions.push(
-          Token.createRevokeInstruction(
-            TOKEN_PROGRAM_ID,
-            whitelistToken,
-            payer,
-            [],
-          ),
-        );
-      }
     }
   }
 
   if (candyMachine.state.tokenMint) {
-    const transferAuthority = anchor.web3.Keypair.generate();
-
-    signers.push(transferAuthority);
     remainingAccounts.push({
       pubkey: userPayingAccountAddress,
       isWritable: true,
       isSigner: false,
     });
     remainingAccounts.push({
-      pubkey: transferAuthority.publicKey,
+      pubkey: payer,
       isWritable: false,
       isSigner: true,
     });
-
-    instructions.push(
-      Token.createApproveInstruction(
-        TOKEN_PROGRAM_ID,
-        userPayingAccountAddress,
-        transferAuthority.publicKey,
-        payer,
-        [],
-        candyMachine.state.price.toNumber(),
-      ),
-    );
-    cleanupInstructions.push(
-      Token.createRevokeInstruction(
-        TOKEN_PROGRAM_ID,
-        userPayingAccountAddress,
-        payer,
-        [],
-      ),
-    );
   }
   const metadataAddress = await getMetadata(mint.publicKey);
   const masterEdition = await getMasterEdition(mint.publicKey);
@@ -608,11 +563,11 @@ export const mintOneToken = async (
     }
   }
 
-  const instructionsMatrix = [instructions, cleanupInstructions];
-  const signersMatrix = [signers, []];
+  const instructionsMatrix = [instructions];
+  const signersMatrix = [signers];
 
   try {
-    return (
+    const txns = (
       await sendTransactions(
         candyMachine.program.provider.connection,
         candyMachine.program.provider.wallet,
@@ -627,10 +582,15 @@ export const mintOneToken = async (
         afterTransactions,
       )
     ).txs.map(t => t.txid);
+    const mintTxn = txns[0];
+    return {
+      mintTxId: mintTxn,
+      metadataKey: metadataAddress,
+    };
   } catch (e) {
     console.log(e);
   }
-  return [];
+  return null;
 };
 
 export const shortenAddress = (address: string, chars = 4): string => {

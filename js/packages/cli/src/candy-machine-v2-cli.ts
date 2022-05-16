@@ -144,6 +144,7 @@ programCommand('upload')
     const {
       storage,
       nftStorageKey,
+      nftStorageGateway,
       ipfsInfuraProjectId,
       number,
       ipfsInfuraSecret,
@@ -285,6 +286,7 @@ programCommand('upload')
         retainAuthority,
         mutable,
         nftStorageKey,
+        nftStorageGateway,
         ipfsCredentials,
         pinataJwt,
         pinataGateway,
@@ -1279,6 +1281,13 @@ function programCommand(
 
   return cmProgram;
 }
+
+programCommand('decode_private_key', { requireWallet: false })
+  .argument('<private key>', 'Base58 encoded private key')
+  .action(async privKey => {
+    const decodedPrivKey = Uint8Array.from(bs58.decode(privKey));
+    console.log(decodedPrivKey);
+  });
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function setLogLevel(value, prev) {

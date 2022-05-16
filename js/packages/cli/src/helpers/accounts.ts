@@ -523,6 +523,7 @@ export function loadWalletKey(keypair): Keypair {
   if (!keypair || keypair == '') {
     throw new Error('Keypair is required!');
   }
+
   const decodedKey = new Uint8Array(
     keypair.endsWith('.json') && !Array.isArray(keypair)
       ? JSON.parse(fs.readFileSync(keypair).toString())
